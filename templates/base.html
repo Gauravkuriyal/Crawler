@@ -1,0 +1,42 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %} {% endblock %}</title>
+    <link rel="icon" type="image/png" href="{% static 'images/LogoIcon.png' %}">
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <style>
+        main{
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    {% include "imports/header.html" %}
+    <main>
+        {% block content %}
+    
+        {% endblock %}
+    </main>
+    {% include "imports/footer.html" %}
+    <!-- <script src="https://unpkg.com/@tailwindcss/browser@4"></script> -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const menuButton = document.querySelector("nav .lg\\:hidden button");
+            const mobileMenu = document.querySelector("header div[role='dialog']");
+            const closeButton = mobileMenu.querySelector("button");
+    
+            menuButton.addEventListener("click", function () {
+                mobileMenu.classList.toggle("hidden");
+            });
+    
+            closeButton.addEventListener("click", function () {
+                mobileMenu.classList.add("hidden");
+            });
+        });
+    </script>
+</body>
+</html>

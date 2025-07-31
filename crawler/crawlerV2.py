@@ -1,0 +1,382 @@
+import requests
+import re
+import os
+import tldextract
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin
+import fitz  # PyMuPDF for PDFs
+import docx  # python-docx for DOCX files
+import openpyxl  # openpyxl for XLSX files
+import csv
+from collections import deque
+from urllib.parse import urlparse
+from django.core.exceptions import ValidationError
+import mimetypes
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Regular expressions for emails and phone numbers
+EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+PHONE_REGEX = r"\+?\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}"
+
+AllEmails = set()
+AllNumbers = set()
+visited_links = set()
+download_folder = "downloaded_files"
+
+# Create download folder if not exists
+os.makedirs(download_folder, exist_ok=True)
+
+def get_emails_and_phones(content):
+    """Extract emails and phone numbers from page content"""
+    emails = re.findall(EMAIL_REGEX, content)
+    phones = re.findall(PHONE_REGEX, content)
+    return set(emails), set(phones)
+
+def extract_text_from_file(file_path, file_extension):
+    """Extract text from different file types"""
+    try:
+        if file_extension == ".pdf":
+            doc = fitz.open(file_path)
+            text = "\n".join([page.get_text() for page in doc])
+        elif file_extension == ".docx":
+            doc = docx.Document(file_path)
+            text = "\n".join([para.text for para in doc.paragraphs])
+        elif file_extension == ".xlsx":
+            wb = openpyxl.load_workbook(file_path)
+            text = "\n".join([" ".join([str(cell.value) for cell in row]) for sheet in wb.worksheets for row in sheet.iter_rows()])
+        elif file_extension == ".csv":
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as csvfile:
+                reader = csv.reader(csvfile)
+                text = "\n".join([" ".join(row) for row in reader])
+        else:  # Treat as plain text
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
+                text = file.read()
+        return text
+    except Exception as e:
+        print(f"⚠️ Error reading {file_path}: {e}")
+        return ""
+
+def process_uploaded_file(file_path):
+    """Process an uploaded file and extract emails and phone numbers"""
+    file_extension = os.path.splitext(file_path)[1].lower()
+    text = extract_text_from_file(file_path, file_extension)
+    emails, phones = get_emails_and_phones(text)
+    AllEmails.update(emails)
+    AllNumbers.update(phones)
+    print("\n📧 Extracted Emails:", AllEmails)
+    print("\n📞 Extracted Phone Numbers:", AllNumbers)
+
+def download_and_extract(url):
+    """Download a file and extract content"""
+    file_extension = os.path.splitext(url)[1].lower()
+    if file_extension not in [".pdf", ".docx", ".xlsx", ".csv", ".txt"]:
+        return  # Skip unsupported file types
+
+    filename = os.path.join(download_folder, os.path.basename(url))
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        with open(filename, "wb") as file:
+            file.write(response.content)
+        print(f"📂 Downloaded: {filename}")
+
+        text = extract_text_from_file(filename, file_extension)
+        emails, phones = get_emails_and_phones(text)
+        AllEmails.update(emails)
+        AllNumbers.update(phones)
+
+    except Exception as e:
+        print(f"❌ Failed to download {url}: {e}")
+
+# def crawl(url, base_domain):
+def crawl(start_url, base_domain, max_depth=10):
+    """Recursively crawl a website to extract emails and phone numbers"""
+    # new
+    queue = deque([(start_url, 0)])
+
+    while queue:
+        url, depth = queue.popleft()
+
+        if url in visited_links:
+            continue
+
+        if depth > max_depth:
+            continue
+
+        print(f"🔍 Crawling: {url}")
+        visited_links.add(url)
+
+        try:
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            content = response.text
+        except requests.RequestException:
+            print(f"❌ Failed to access: {url}")
+            continue
+        except Exception as e:
+            print(f"❌ Failed to access: {url}")
+            continue
+
+
+        # Extract emails and phone numbers
+        emails, phones = get_emails_and_phones(content)
+        # AllEmails.update(emails)
+        # AllNumbers.update(phones)
+        if emails or phones:
+            global AllEmails, AllNumbers
+            AllEmails.update(emails)
+            AllNumbers.update(phones)
+
+        # Parse links in the page
+        soup = BeautifulSoup(content, "html.parser")
+        for link in soup.find_all("a", href=True):
+            next_url = urljoin(url, link["href"])
+            extracted_domain = tldextract.extract(next_url).registered_domain
+
+            if extracted_domain == base_domain and next_url not in visited_links:
+                if any(next_url.endswith(ext) for ext in [".pdf", ".docx", ".xlsx", ".txt", ".csv"]):
+                    download_and_extract(next_url)
+                else:
+                    queue.append((next_url, depth + 1))
+
+    print("\nCrawling completed.")
+    print("\n📧 Extracted Emails:", AllEmails)
+    print("📞 Extracted Phone Numbers:", AllNumbers)
+    return AllEmails, AllNumbers
+
+def site_crawler(site_url):
+    try:
+        global AllNumbers, AllEmails
+        AllEmails = set()
+        AllNumbers = set()
+        start_url = site_url.strip()
+        base_domain = tldextract.extract(start_url).registered_domain
+        crawl(start_url, base_domain)
+        return (AllEmails,AllNumbers)
+    except Exception as e:
+        print(e)
+        return (set(),set())
+    finally:
+        AllEmails = set()
+        AllNumbers = set()
+
+def file_crawler(file_path):
+    try:
+        global AllNumbers, AllEmails
+        AllEmails = set()
+        AllNumbers = set()
+        file_path = file_path.strip()
+        if os.path.exists(file_path):
+            process_uploaded_file(file_path)
+        else:
+            print("❌ File not found. Please enter a valid file path.")
+        return (AllEmails,AllNumbers)
+    except Exception as e:
+        print(e)
+        return (set(),set())
+    finally:
+        AllEmails = set()
+        AllNumbers = set()
+
+    
+# if __name__ == "__main__":
+#     print("Choose an option:")
+#     print("1️⃣ Crawl a website for emails & phone numbers")
+#     print("2️⃣ Upload a file and extract emails & phone numbers")
+#     choice = input("Enter your choice (1 or 2): ").strip()
+    
+#     if choice == "1":
+#         start_url = input("Enter a website URL to crawl: ").strip()
+#         base_domain = tldextract.extract(start_url).registered_domain
+#         crawl(start_url, base_domain)
+
+#         print("\n📧 Extracted Emails:")
+#         print(AllEmails)
+#         print("\n📞 Extracted Phone Numbers:")
+#         print(AllNumbers)
+
+#     elif choice == "2":
+#         file_path = input("Enter the path of the file to upload: ").strip()
+#         if os.path.exists(file_path):
+#             process_uploaded_file(file_path)
+#         else:
+#             print("❌ File not found. Please enter a valid file path.")
+#     else:
+#         print("❌ Invalid choice. Please enter 1 or 2.")
+
+
+
+import os
+import requests
+from urllib.parse import urlparse, urljoin
+from bs4 import BeautifulSoup
+from django.core.exceptions import ValidationError
+import re
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def crawl_urls_for_files(urls, visited_urls=None):
+    """
+    Crawls webpages from a list of URLs, downloads supported files (including those without extensions),
+    and extracts emails and phone numbers. Also crawls URLs linked from anchor tags with inner text 'pdf'.
+    Args:
+        urls (list): List of webpage URLs to scrape for files.
+        visited_urls (set): Set of URLs already visited to prevent infinite loops (default: None).
+    Returns:
+        tuple: (set of emails, set of phone numbers) extracted from all downloaded files.
+    """
+    if visited_urls is None:
+        visited_urls = set()
+
+    emails = set()
+    phone_numbers = set()
+    
+    # Define valid extensions and their corresponding MIME types
+    valid_mime_types = {
+        'application/pdf': '.pdf',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/vnd.ms-excel': '.xls',
+        'text/csv': '.csv',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'text/plain': '.txt',
+    }
+
+    # Set user-agent to avoid being blocked
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    # Set up retry strategy for requests
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    session.mount('http://', HTTPAdapter(max_retries=retries))
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+
+    def sanitize_filename(filename):
+        """Sanitize filename to remove invalid characters and handle UTF-8 encoding."""
+        if 'filename*=' in filename:
+            try:
+                filename = filename.split("filename*=UTF-8''")[-1]
+                filename = requests.utils.unquote(filename)
+            except Exception:
+                pass
+        filename = re.sub(r'[^\w\.\-]', '_', filename)
+        filename = filename.strip('._')
+        return filename or 'downloaded_file'
+
+    def process_webpage(url):
+        """Helper function to process a single webpage and return file URLs and PDF-linked URLs."""
+        file_urls = set()
+        pdf_linked_urls = set()
+        
+        try:
+            # Fetch the webpage
+            response = session.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Find all links on the webpage
+            links = soup.find_all('a', href=True)
+            for link in links:
+                href = link['href']
+                file_url = urljoin(url, href)
+                link_text = link.get_text().strip().lower()
+
+                # Check if the link text is exactly 'pdf'
+                if link_text == 'pdf':
+                    if file_url not in visited_urls:
+                        pdf_linked_urls.add(file_url)
+                    continue
+
+                # Check if the link points to a supported file type
+                try:
+                    head_response = session.head(file_url, headers=headers, timeout=10, allow_redirects=True)
+                    content_type = head_response.headers.get('content-type', '').lower().split(';')[0]
+                    
+                    if content_type in valid_mime_types:
+                        file_urls.add(file_url)
+                    else:
+                        ext = os.path.splitext(urlparse(file_url).path)[1].lower()
+                        if ext in valid_mime_types.values():
+                            file_urls.add(file_url)
+
+                except requests.RequestException as e:
+                    print(f"Error checking Content-Type for {file_url}: {e}")
+                    continue
+
+        except requests.RequestException as e:
+            print(f"Error fetching webpage {url}: {e}")
+        except Exception as e:
+            print(f"Unexpected error for webpage {url}: {e}")
+
+        return file_urls, pdf_linked_urls
+
+    # Process each input URL
+    for url in urls:
+        url = url.replace('"', '')
+        print("Processing URL:", url)
+        
+        if url in visited_urls:
+            print(f"Skipping already visited URL: {url}")
+            continue
+        
+        visited_urls.add(url)
+        file_urls, pdf_linked_urls = process_webpage(url)
+
+        # Download and process files from the current webpage
+        for file_url in file_urls:
+            try:
+                file_response = session.get(file_url, headers=headers, stream=True, timeout=15)
+                file_response.raise_for_status()
+
+                content_type = file_response.headers.get('content-type', '').lower().split(';')[0]
+                ext = valid_mime_types.get(content_type)
+                if not ext:
+                    ext = os.path.splitext(urlparse(file_url).path)[1].lower()
+                    if ext not in valid_mime_types.values():
+                        print(f"Skipping unsupported file type for {file_url}")
+                        continue
+
+                content_disposition = file_response.headers.get('content-disposition', '')
+                if content_disposition and 'filename=' in content_disposition:
+                    filename = content_disposition.split('filename=')[-1].strip('"\'')
+                else:
+                    filename = os.path.basename(urlparse(file_url).path)
+                
+                filename = sanitize_filename(filename)
+                if not filename or not os.path.splitext(filename)[1]:
+                    filename = f'downloaded_file{ext}'
+                elif os.path.splitext(filename)[1].lower() != ext:
+                    filename = os.path.splitext(filename)[0] + ext
+
+                os.makedirs('media', exist_ok=True)
+                file_path = f'media/{filename}'
+                with open(file_path, 'wb') as f:
+                    for chunk in file_response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+
+                try:
+                    Nemails, NphoneNumbers = file_crawler(file_path)
+                    emails.update(Nemails)
+                    phone_numbers.update(NphoneNumbers)
+                    print(f"Successfully processed {filename}")
+                except Exception as e:
+                    print(f"Error crawling file {filename}: {e}")
+
+            except requests.RequestException as e:
+                print(f"Error downloading file from {file_url}: {e}")
+            except Exception as e:
+                print(f"Unexpected error for file {file_url}: {e}")
+
+        # Recursively crawl URLs linked from 'pdf' anchor tags
+        if pdf_linked_urls:
+            print(f"Found PDF-linked URLs to crawl: {pdf_linked_urls}")
+            # Recursively call the function for PDF-linked URLs
+            sub_emails, sub_phone_numbers = crawl_urls_for_files(pdf_linked_urls, visited_urls)
+            emails.update(sub_emails)
+            phone_numbers.update(sub_phone_numbers)
+
+    return emails, phone_numbers
