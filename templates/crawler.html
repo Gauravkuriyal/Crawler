@@ -13,13 +13,13 @@
 
                 <select name="crawlerSelector" id="crawlerSelector" onchange="handleCrawlerSelector()"
                     class="select mt-5">
-                    <option selected value="link">Enter Link</option>
+                    <!-- <option selected value="link">Enter Link</option> -->
                     <option value="file">File Upload</option>
-                    <option value="linkfile">Link with Files</option>
+                    <option selected value="linkfile">Link with Files</option>
                 </select>
 
                 <div class="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
-                    <div id="linkUpload" class="sm:col-span-4">
+                    <div id="linkUpload" class="hidden sm:col-span-4">
                         <label for="site_url" class="block text-sm/6 font-medium text-gray-900">Enter the Link
                             here</label>
                         <div class="mt-2">
@@ -44,7 +44,7 @@
                         </div>
                     </div>
 
-                    <div id="linkfileUpload" class="hidden sm:col-span-4">
+                    <div id="linkfileUpload" class="sm:col-span-4">
                         <label for="linkfile_urls" class="block text-sm/6 font-medium text-gray-900">Enter the Links
                             here</label>
                         <div class="mt-2">
@@ -106,14 +106,14 @@
             {% endfor %}
         </div>
         <br>
-        <!-- <p class="text-lg text-[#555555]">Phone Numbers :</p>
+        <p class="text-lg text-[#555555]">Phone Numbers :</p>
         <div class="flex items-center gap-2 mt-2 flex-wrap">
             {% for number in phoneNumbers %}
             <span class="py-1 px-3 bg-green-200 rounded-full">
                 {{number}}
             </span>
             {% endfor %}
-        </div> -->
+        </div>
     </div>
     {% elif data == False %}
     <div class="border rounded p-5 bg-red-100">
@@ -124,7 +124,7 @@
 {% endif %}
 
 
-<div class="mx-[10%]">
+<!-- <div class="mx-[10%]">
     <h3 class="bg-blue-400 text-white px-2 py-2">Help Text</h3>
     <p class="italic py-5">Paste this in console (For Environment Journal)</p>
     <ol class="bg-black text-white p-5">
@@ -137,7 +137,7 @@
         </li>
         <li class="text-white">urls;</li>
     </ol>
-</div>
+</div> -->
 <script src="/static/js/crawlerScript.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
