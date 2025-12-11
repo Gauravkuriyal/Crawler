@@ -23,7 +23,10 @@ headers = {
     }
 # Regular expressions for emails and phone numbers
 EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-PHONE_REGEX = r"\+\d{1,4}[\s-]\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}"
+# PHONE_REGEX = r"\+\d{1,4}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}"
+allowed =["1","7","20","27","30","31","32","33","34","36","39","40","41","43","44","45","46","47","48","49","51","52","53","54","55","56","57","58","60","61","62","63","64","65","66","81","82","84","86","90","91","92","93","94","95","98","211","212","213","216","218","220","221","222","223","224","225","226","227","228","229","230","231","232","233","234","235","236","237","238","239","240","241","242","243","244","245","246","248","249","250","251","252","253","254","255","256","257","258","260","261","262","263","264","265","266","267","268","269","290","291","297","298","299","350","351","352","353","354","355","356","357","358","359","370","371","372","373","374","375","376","377","378","379","380","381","382","383","385","386","387","389","420","421","423","500","501","502","503","504","505","506","507","508","509","590","591","592","593","595","597","598","599","670","672","673","674","675","676","677","678","679","680","681","682","683","685","686","687","688","689","690","691","692","850","852","853","855","856","880","886","960","961","962","963","964","965","966","967","968","970","971","972","973","974","975","976","977","992","993","994","995","996","998","1-242","1-246","1-264","1-268","1-284","1-340","1-345","1-441","1-473","1-649","1-664","1-670","1-671","1-684","1-721","1-758","1-767","1-784","1-787, 1-939","1-809, 1-829, 1-849","1-868","1-869","1-876","44-1481","44-1534","44-1624"]
+country_group = "|".join(allowed) 
+PHONE_REGEX = rf"\+(?:{country_group})[\s-]?\(?\d{{1,4}}\)?[\s-]?\d{{3,4}}[\s-]?\d{{3,4}}"
 
 # AllEmails = set()
 # AllNumbers = set()
@@ -266,7 +269,7 @@ def crawl_urls_for_files(urls, visited_urls=None):
 
     # Set up retry strategy for requests
     session = requests.Session()
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    retries = Retry(total=1, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('http://', HTTPAdapter(max_retries=retries))
     session.mount('https://', HTTPAdapter(max_retries=retries))
 
@@ -331,7 +334,8 @@ def crawl_urls_for_files(urls, visited_urls=None):
                     link_title = link_title.strip().lower()
                     print(f"link title is {link_title} for link: {file_url}")
                 # Check if the link text is exactly 'pdf'
-                if link_text == 'pdf' or link_text == 'full article' or link_title ==  "article pdf" or link_title == "view full article":
+                print(f"link text is {link_text[:10]} for link: {file_url}")
+                if link_text == 'pdf' or link_text == 'full article' or link_text == 'view pdf' or link_title ==  "article pdf" or link_title == "view full article":
                     # print(f"link text is {link_text[:10]} for link: {file_url}")
                     if file_url not in visited_urls:
                         pdf_linked_urls.add(file_url)
@@ -356,6 +360,18 @@ def crawl_urls_for_files(urls, visited_urls=None):
         visited_urls.add(url)
         file_urls, pdf_linked_urls = process_webpage(url)
         print(f"found Urls\n file urls:  {file_urls},\n pdf_linked_urls:  {pdf_linked_urls}")
+
+        try: 
+            response = requests.get(url)
+            response.raise_for_status()
+            full_text = response.text
+            Nemails, NphoneNumbers = get_emails_and_phones(full_text)
+            print(f"from {url} webpage {Nemails} , {NphoneNumbers}")
+            emails.update(Nemails)
+            phone_numbers.update(NphoneNumbers)
+        except Exception as e:
+            print(f"Unexpected error for webpage {url}: {e}")
+
         # Download and process files from the current webpage
         for file_url in file_urls:
         # for file_url in ["https://theaspd.com/index.php/ijes/article/download/11836/8440/25192"]:
@@ -409,10 +425,12 @@ def crawl_urls_for_files(urls, visited_urls=None):
 
                 try:
                     # Nemails, NphoneNumbers = file_crawler(file_path)
-                    Nemails, NphoneNumbers = get_emails_and_phones(full_text)
-                    emails.update(Nemails)
-                    phone_numbers.update(NphoneNumbers)
-                    print(f"Successfully processed {file_url} {Nemails} {NphoneNumbers}")
+                    if full_text:
+                        if len(full_text)>0:
+                            Nemails, NphoneNumbers = get_emails_and_phones(full_text)
+                            emails.update(Nemails)
+                            phone_numbers.update(NphoneNumbers)
+                            print(f"Successfully processed {file_url} {Nemails} {NphoneNumbers}")
                 except Exception as e:
                     print(f"Error crawling file {file_url}: {e}")
 
